@@ -18,7 +18,7 @@ jobs:
       - name: Install Android platform
         run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
       - name: Build, unit tests, instrumentation compilation and lint
-        run: ./gradlew assembleDebug testDebugUnitTest :core:telemetry:test :app:assembleDebugAndroidTest :core:database:assembleDebugAndroidTest lintDebug
+        run: ./gradlew assembleDebug testDebugUnitTest :core:telemetry:test :app:assembleDebugAndroidTest :core:database:assembleDebugAndroidTest :core:tracking:assembleDebugAndroidTest lintDebug
       - uses: actions/upload-artifact@v4
         with:
           name: moto-telemetry-debug

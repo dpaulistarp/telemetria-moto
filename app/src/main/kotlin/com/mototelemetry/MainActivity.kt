@@ -11,6 +11,8 @@ import dagger.hilt.android.AndroidEntryPoint
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     private val viewModel: MotoViewModel by viewModels()
+    override fun onStart() { super.onStart(); viewModel.setForeground(true) }
+    override fun onStop() { viewModel.setForeground(false); super.onStop() }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()

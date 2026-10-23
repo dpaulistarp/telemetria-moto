@@ -13,6 +13,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.testTag
+import com.mototelemetry.core.telemetry.*
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -40,6 +43,15 @@ fun MotoApp(viewModel: MotoViewModel) {
     val history by viewModel.history.collectAsStateWithLifecycle()
     val preferences by viewModel.preferences.collectAsStateWithLifecycle()
     val active by viewModel.activeTrip.collectAsStateWithLifecycle()
+    val speedometer by viewModel.speedometer.collectAsStateWithLifecycle()
+    val speedometerRequested by viewModel.speedometerRequested.collectAsStateWithLifecycle()
+    val view = LocalView.current
+    val keepScreenOn = preferences.value.keepScreenOn && speedometerRequested && speedometer.status != SpeedometerStatus.STOPPED
+    DisposableEffect(view, keepScreenOn) {
+        val previous = view.keepScreenOn
+        view.keepScreenOn = keepScreenOn
+        onDispose { view.keepScreenOn = previous }
+    }
     val writeError by viewModel.writeError.collectAsStateWithLifecycle()
     val controller = rememberNavController()
     val backStack by controller.currentBackStackEntryAsState()
@@ -65,7 +77,10 @@ fun MotoApp(viewModel: MotoViewModel) {
         },
     ) { padding ->
         NavHost(controller, startDestination = "dashboard", modifier = Modifier.padding(padding)) {
-            composable("dashboard") { Dashboard(active.error, active.value) }
+            composable("dashboard") {
+                Dashboard(active.error, active.value, speedometer, speedometerRequested,
+                    viewModel::startSpeedometer, viewModel::stopSpeedometer)
+            }
             composable("history") {
                 History(history) { controller.navigate("trip/${Uri.encode(it)}") }
             }
@@ -112,27 +127,12 @@ private fun Metric(label: String, value: String, unit: String, modifier: Modifie
 }
 
 @Composable
-private fun Dashboard(error: String?, active: TripEntity?) {
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
-        item { PageTitle("MOTO TELEMETRY / 01", "Seu próximo caminho.") }
-        item {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("○  GPS NÃO CONECTADO", style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("OFFLINE", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-            }
-        }
-        item {
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.fillMaxWidth().padding(vertical = 30.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Default.Speed, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(34.dp))
-                    Text("—", fontSize = 96.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Light)
-                    Text("km/h", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
-                    Spacer(Modifier.height(16.dp))
-                    Text("Aguardando integração com GPS", style = MaterialTheme.typography.bodyMedium)
-                }
-            }
-        }
+private fun Dashboard(error: String?, active: TripEntity?, speedometer: SpeedometerState,
+                      requested: Boolean, onStart: () -> Unit, onStop: () -> Unit) {
+    LazyColumn(Modifier.fillMaxSize().testTag("dashboard"), contentPadding = PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+        item { PageTitle("MOTO TELEMETRY / 02", "Seu próximo caminho.") }
+        item { SpeedometerReadout(speedometer) }
+        item { SpeedometerControls(speedometer, requested, onStart, onStop) }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Metric("DISTÂNCIA", "—", "km", Modifier.weight(1f))
@@ -152,7 +152,7 @@ private fun Dashboard(error: String?, active: TripEntity?) {
                 Text("INICIAR VIAGEM")
             }
         }
-        item { Notice("Fundação • etapa 1", "O painel ainda não coleta localização nem grava viagens. O velocímetro real e as permissões entram na etapa 2; a gravação, na etapa 3.") }
+        item { Notice("Velocímetro • etapa 2", "A velocidade usa a localização do aparelho e não grava uma viagem. Ao sair do app ou bloquear a tela, a coleta para; volta quando você retornar. A gravação em segundo plano entra na etapa 3.") }
         if (error != null) item { Notice("Armazenamento indisponível", error) }
         if (active != null) item { Notice("Sessão armazenada", "Há uma sessão local (${active.status}). Os controles de recuperação serão disponibilizados com a gravação.") }
         item { Text("Prepare a viagem com a moto parada. Durante a pilotagem, mantenha a atenção na via.",
@@ -214,14 +214,14 @@ private fun Settings(state: LoadState<RiderPreferences>, writeError: String?, on
                 Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     Text("Painel de pilotagem", style = MaterialTheme.typography.titleMedium)
                     SettingSwitch("Suavizar velocímetro", p.smoothDisplay, !state.loading && state.error == null, onSmoothing)
-                    SettingSwitch("Manter tela ligada na viagem", p.keepScreenOn, !state.loading && state.error == null, onScreen)
-                    Text("Estas preferências serão aplicadas quando a coleta estiver disponível. Unidade: km/h.",
+                    SettingSwitch("Manter tela ligada com velocímetro", p.keepScreenOn, !state.loading && state.error == null, onScreen)
+                    Text("Suavização afeta somente a exibição. A tela fica ligada enquanto o velocímetro estiver ativo e o app visível. Unidade: km/h.",
                         style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
         item { Notice("Eventos • parâmetros iniciais", "Aceleração ≥ ${decimal(p.accelerationThreshold.toDouble())} m/s²\nFrenagem ≤ −${decimal(p.brakingThreshold.toDouble())} m/s²\nDetecção e ajuste de limiares serão adicionados na etapa de eventos.") }
-        item { Notice("Privacidade por padrão", "Sem conta, servidor ou analytics. Banco de dados e preferências ficam no aparelho, com backup do app desabilitado. Não solicitamos localização nesta etapa.") }
+        item { Notice("Privacidade por padrão", "Sem conta, servidor ou analytics. Banco de dados e preferências ficam no aparelho, com backup do app desabilitado. Localização precisa é solicitada somente ao ativar o velocímetro. Nenhuma posição é salva nesta etapa.") }
         item { Notice("Mapa e exportação", "Mapa, gráfico, importação de mapas offline e GPX/CSV serão disponibilizados nas próximas etapas.") }
     }
 }

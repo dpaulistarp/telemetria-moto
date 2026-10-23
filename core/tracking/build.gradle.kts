@@ -13,4 +13,7 @@ dependencies {
     api(project(":core:telemetry"))
     implementation(project(":core:database"))
     api(libs.coroutines.core)
+    implementation(libs.play.location)
+    androidTestImplementation(libs.androidx.test.junit)
+    androidTestImplementation(libs.androidx.test.runner)
 }

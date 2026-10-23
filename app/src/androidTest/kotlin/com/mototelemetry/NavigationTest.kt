@@ -11,12 +11,14 @@ import org.junit.runner.RunWith
 class NavigationTest {
     @get:Rule val rule = createAndroidComposeRule<MainActivity>()
     @Test fun dashboardHistoryAndSettingsAreReachable() {
+        rule.onNodeWithTag("dashboard").performScrollToNode(hasText("INICIAR VIAGEM"))
         rule.onNodeWithText("INICIAR VIAGEM").assertIsNotEnabled()
         rule.onNodeWithText("Histórico").performClick()
         rule.onNodeWithText("Suas viagens").assertIsDisplayed()
         rule.onNodeWithText("Ajustes").performClick()
         rule.onNodeWithText("Do seu jeito").assertIsDisplayed()
         rule.onNodeWithText("Painel").performClick()
+        rule.onNodeWithTag("dashboard").performScrollToNode(hasText("Seu próximo caminho."))
         rule.onNodeWithText("Seu próximo caminho.").assertIsDisplayed()
     }
 }

@@ -70,4 +70,4 @@ set -o pipefail
 if [[ "$sdk_status" -ne 0 ]]; then exit "$sdk_status"; fi
 cd "$repo_dir"
 ./gradlew assembleDebug testDebugUnitTest :core:telemetry:test \
-    :app:assembleDebugAndroidTest :core:database:assembleDebugAndroidTest lintDebug --console=plain
+    :app:assembleDebugAndroidTest :core:database:assembleDebugAndroidTest :core:tracking:assembleDebugAndroidTest lintDebug --console=plain
