@@ -81,7 +81,7 @@ internal fun SpeedometerControls(state: SpeedometerState, requested: Boolean, on
         }
     }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Use a localização precisa para medir velocidade enquanto o app estiver visível. Nesta etapa, nenhuma posição é salva.",
+        Text("Use a localização precisa para medir velocidade enquanto o app estiver visível. O velocímetro sem uma viagem iniciada não salva posições.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         when (state.status) {
             SpeedometerStatus.PERMISSION_REQUIRED -> {

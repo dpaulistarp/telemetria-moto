@@ -12,7 +12,10 @@ class NavigationTest {
     @get:Rule val rule = createAndroidComposeRule<MainActivity>()
     @Test fun dashboardHistoryAndSettingsAreReachable() {
         rule.onNodeWithTag("dashboard").performScrollToNode(hasText("INICIAR VIAGEM"))
-        rule.onNodeWithText("INICIAR VIAGEM").assertIsNotEnabled()
+        rule.waitUntil(5_000) {
+            rule.onAllNodes(hasText("INICIAR VIAGEM") and isEnabled()).fetchSemanticsNodes().isNotEmpty()
+        }
+        rule.onNodeWithText("INICIAR VIAGEM").assertIsEnabled()
         rule.onNodeWithText("Histórico").performClick()
         rule.onNodeWithText("Suas viagens").assertIsDisplayed()
         rule.onNodeWithText("Ajustes").performClick()

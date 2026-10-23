@@ -36,6 +36,8 @@ internal fun Location.toFix(provider: LocationProvider) = LocationFix(
     speedMps = if (hasSpeed()) speed else null,
     speedAccuracyMps = if (hasSpeedAccuracy()) speedAccuracyMetersPerSecond else null,
     isMock = isMock, provider = provider,
+    bearingDegrees = if (hasBearing()) bearing else null,
+    altitudeMeters = if (hasAltitude()) altitude else null,
 )
 
 /** Fused first; native GPS fallback supports devices without Google Play Services. */

@@ -7,6 +7,9 @@ import com.mototelemetry.core.database.MotoDatabase
 import com.mototelemetry.core.database.TripDao
 import com.mototelemetry.core.datastore.PreferencesRepository
 import com.mototelemetry.core.tracking.SessionRepository
+import com.mototelemetry.core.tracking.RoomRecordingStore
+import com.mototelemetry.core.tracking.TrackingLauncher
+import com.mototelemetry.core.telemetry.SessionRecorder
 import com.mototelemetry.core.tracking.AndroidLocationSource
 import com.mototelemetry.core.tracking.AndroidTelemetryClock
 import com.mototelemetry.core.telemetry.LocationSource
@@ -33,5 +36,7 @@ object AppModule {
     @Provides @Singleton fun locationSource(@ApplicationContext context: Context): LocationSource = AndroidLocationSource(context)
     @Provides fun telemetryClock(): TelemetryClock = AndroidTelemetryClock
     @Provides @Singleton fun speedometer(source: LocationSource, clock: TelemetryClock) = SpeedometerMonitor(source, clock)
-    @Provides @Singleton fun sessions(dao: TripDao) = SessionRepository(dao)
+    @Provides @Singleton fun recorder(database: MotoDatabase, clock: TelemetryClock): SessionRecorder = SessionRecorder(RoomRecordingStore(database), clock)
+    @Provides @Singleton fun sessions(dao: TripDao, recorder: SessionRecorder, clock: TelemetryClock) = SessionRepository(dao, recorder, clock)
+    @Provides @Singleton fun trackingLauncher(@ApplicationContext context: Context, sessions: SessionRepository) = TrackingLauncher(context, sessions)
 }

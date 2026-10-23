@@ -1,5 +1,6 @@
 package com.mototelemetry.core.database
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
@@ -57,6 +58,7 @@ data class TrackPointEntity(
     val rejectionReason: String? = null,
     val segmentId: String,
     val qualityScore: Float? = null,
+    @ColumnInfo(defaultValue = "0") val isMock: Boolean = false,
 )
 
 @Entity(tableName = "telemetry_events", foreignKeys = [ForeignKey(

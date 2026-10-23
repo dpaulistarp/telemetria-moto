@@ -25,6 +25,8 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.*
 import androidx.navigation.navArgument
 import com.mototelemetry.core.database.TripEntity
+import com.mototelemetry.core.database.TrackPointEntity
+import com.mototelemetry.core.tracking.TrackingRuntime
 import com.mototelemetry.core.datastore.*
 import java.time.Instant
 import java.time.ZoneId
@@ -45,8 +47,10 @@ fun MotoApp(viewModel: MotoViewModel) {
     val active by viewModel.activeTrip.collectAsStateWithLifecycle()
     val speedometer by viewModel.speedometer.collectAsStateWithLifecycle()
     val speedometerRequested by viewModel.speedometerRequested.collectAsStateWithLifecycle()
+    val runtime by viewModel.trackingRuntime.collectAsStateWithLifecycle()
+    val sessionReady by viewModel.sessionReady.collectAsStateWithLifecycle()
     val view = LocalView.current
-    val keepScreenOn = preferences.value.keepScreenOn && speedometerRequested && speedometer.status != SpeedometerStatus.STOPPED
+    val keepScreenOn = preferences.value.keepScreenOn && (speedometerRequested || runtime.serviceRunning) && speedometer.status != SpeedometerStatus.STOPPED
     DisposableEffect(view, keepScreenOn) {
         val previous = view.keepScreenOn
         view.keepScreenOn = keepScreenOn
@@ -78,8 +82,12 @@ fun MotoApp(viewModel: MotoViewModel) {
     ) { padding ->
         NavHost(controller, startDestination = "dashboard", modifier = Modifier.padding(padding)) {
             composable("dashboard") {
-                Dashboard(active.error, active.value, speedometer, speedometerRequested,
-                    viewModel::startSpeedometer, viewModel::stopSpeedometer)
+                Dashboard(active.error, active.value, speedometer, speedometerRequested, runtime,
+                    viewModel::startSpeedometer, viewModel::stopSpeedometer) {
+                    TripControls(active.value, sessionReady && !active.loading && active.error == null, runtime,
+                        viewModel::startTrip, viewModel::pauseTrip, viewModel::resumeTrip, viewModel::finishTrip,
+                        viewModel::retryTrip, viewModel::prepareSession)
+                }
             }
             composable("history") {
                 History(history) { controller.navigate("trip/${Uri.encode(it)}") }
@@ -89,7 +97,9 @@ fun MotoApp(viewModel: MotoViewModel) {
                     viewModel::setSmoothing, viewModel::setScreenOn)
             }
             composable("trip/{id}", arguments = listOf(navArgument("id") { type = NavType.StringType })) { entry ->
-                TripDetails(history, entry.arguments?.getString("id")) { controller.popBackStack() }
+                val id = entry.arguments?.getString("id").orEmpty()
+                val points by remember(id) { viewModel.points(id) }.collectAsStateWithLifecycle(LoadState(emptyList()))
+                TripDetails(history, id, points) { controller.popBackStack() }
             }
         }
     }
@@ -128,15 +138,16 @@ private fun Metric(label: String, value: String, unit: String, modifier: Modifie
 
 @Composable
 private fun Dashboard(error: String?, active: TripEntity?, speedometer: SpeedometerState,
-                      requested: Boolean, onStart: () -> Unit, onStop: () -> Unit) {
+                      requested: Boolean, runtime: TrackingRuntime, onStart: () -> Unit, onStop: () -> Unit, tripControls: @Composable () -> Unit) {
     LazyColumn(Modifier.fillMaxSize().testTag("dashboard"), contentPadding = PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
-        item { PageTitle("MOTO TELEMETRY / 02", "Seu próximo caminho.") }
+        item { PageTitle("MOTO TELEMETRY / 03", "Seu próximo caminho.") }
         item { SpeedometerReadout(speedometer) }
-        item { SpeedometerControls(speedometer, requested, onStart, onStop) }
+        if (active == null && !runtime.serviceRunning) item { SpeedometerControls(speedometer, requested, onStart, onStop) }
+        item { tripControls() }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Metric("DISTÂNCIA", "—", "km", Modifier.weight(1f))
-                Metric("TEMPO ATIVO", "—", "h : min : s", Modifier.weight(1f))
+                Metric("TEMPO ATIVO", active?.let { duration(it.elapsedTimeMs) } ?: "—", "h : min : s", Modifier.weight(1f))
             }
         }
         item {
@@ -145,16 +156,8 @@ private fun Dashboard(error: String?, active: TripEntity?, speedometer: Speedome
                 Metric("MÁXIMA VALIDADA", "—", "km/h", Modifier.weight(1f))
             }
         }
-        item {
-            Button(onClick = {}, enabled = false, modifier = Modifier.fillMaxWidth().heightIn(min = 60.dp)) {
-                Icon(Icons.Default.PlayArrow, null)
-                Spacer(Modifier.width(8.dp))
-                Text("INICIAR VIAGEM")
-            }
-        }
-        item { Notice("Velocímetro • etapa 2", "A velocidade usa a localização do aparelho e não grava uma viagem. Ao sair do app ou bloquear a tela, a coleta para; volta quando você retornar. A gravação em segundo plano entra na etapa 3.") }
+        item { Notice("Gravação • etapa 3", "Viagens e amostras ficam no aparelho. Pausas e lacunas criam segmentos separados. Distância, médias e eventos serão calculados na próxima etapa.") }
         if (error != null) item { Notice("Armazenamento indisponível", error) }
-        if (active != null) item { Notice("Sessão armazenada", "Há uma sessão local (${active.status}). Os controles de recuperação serão disponibilizados com a gravação.") }
         item { Text("Prepare a viagem com a moto parada. Durante a pilotagem, mantenha a atenção na via.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
     }
@@ -168,14 +171,14 @@ private fun History(state: LoadState<List<TripEntity>>, onTrip: (String) -> Unit
             state.loading -> item { CircularProgressIndicator() }
             state.error != null -> item { Notice("Histórico indisponível", state.error) }
             state.value.isEmpty() -> item {
-                Notice("A estrada começa aqui", "Nenhuma viagem salva. Quando a gravação estiver disponível, seus percursos e métricas aparecerão aqui, armazenados somente neste aparelho.")
+                Notice("A estrada começa aqui", "Nenhuma viagem salva. Inicie uma viagem no painel para guardar o trajeto neste aparelho.")
             }
             else -> items(state.value, key = { it.id }) { trip ->
                 Card(onClick = { onTrip(trip.id) }, modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(formatDate(trip.startedAtUtcMs), style = MaterialTheme.typography.titleMedium)
-                        Text("${decimal(trip.distanceMeters / 1000)} km • ${duration(trip.elapsedTimeMs)}")
-                        Text("Máxima ${decimal(trip.maxSpeedMps * 3.6)} km/h • ${trip.status}", style = MaterialTheme.typography.bodySmall)
+                        Text("${trip.totalPoints} amostras • ${duration(trip.elapsedTimeMs)}")
+                        Text(trip.status, style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
@@ -204,7 +207,7 @@ private fun Settings(state: LoadState<RiderPreferences>, writeError: String?, on
                                 MountMode.POCKET -> "Bolso"
                             }) }, modifier = Modifier.fillMaxWidth())
                     }
-                    Text("Preferência salva para a futura coleta. A posição não será detectada automaticamente nesta etapa.",
+                    Text("Preferência salva para a futura análise de eventos. A posição não é detectada automaticamente.",
                         style = MaterialTheme.typography.bodySmall)
                 }
             }
@@ -221,7 +224,7 @@ private fun Settings(state: LoadState<RiderPreferences>, writeError: String?, on
             }
         }
         item { Notice("Eventos • parâmetros iniciais", "Aceleração ≥ ${decimal(p.accelerationThreshold.toDouble())} m/s²\nFrenagem ≤ −${decimal(p.brakingThreshold.toDouble())} m/s²\nDetecção e ajuste de limiares serão adicionados na etapa de eventos.") }
-        item { Notice("Privacidade por padrão", "Sem conta, servidor ou analytics. Banco de dados e preferências ficam no aparelho, com backup do app desabilitado. Localização precisa é solicitada somente ao ativar o velocímetro. Nenhuma posição é salva nesta etapa.") }
+        item { Notice("Privacidade por padrão", "Sem conta, servidor ou analytics. Banco de dados e preferências ficam no aparelho, com backup do app desabilitado. Localização precisa é solicitada somente ao ativar o velocímetro. As viagens iniciadas são salvas somente no aparelho.") }
         item { Notice("Mapa e exportação", "Mapa, gráfico, importação de mapas offline e GPX/CSV serão disponibilizados nas próximas etapas.") }
     }
 }
@@ -235,7 +238,7 @@ private fun SettingSwitch(label: String, checked: Boolean, enabled: Boolean, onC
 }
 
 @Composable
-private fun TripDetails(state: LoadState<List<TripEntity>>, id: String?, onBack: () -> Unit) {
+private fun TripDetails(state: LoadState<List<TripEntity>>, id: String?, points: LoadState<List<TrackPointEntity>>, onBack: () -> Unit) {
     val trip = state.value.find { it.id == id }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
         item { IconButton(onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Voltar") } }
@@ -246,10 +249,15 @@ private fun TripDetails(state: LoadState<List<TripEntity>>, id: String?, onBack:
             trip == null -> item { Notice("Viagem não encontrada", "Este registro não existe no banco local.") }
             else -> {
                 item { Text(formatDate(trip.startedAtUtcMs), style = MaterialTheme.typography.titleMedium) }
-                item { Metric("DISTÂNCIA", decimal(trip.distanceMeters / 1000), "km", Modifier.fillMaxWidth()) }
+                item { Metric("AMOSTRAS SALVAS", trip.totalPoints.toString(), "inclui amostras desconsideradas", Modifier.fillMaxWidth()) }
                 item { Metric("DURAÇÃO", duration(trip.elapsedTimeMs), "tempo ativo", Modifier.fillMaxWidth()) }
-                item { Metric("MÁXIMA VALIDADA", decimal(trip.maxSpeedMps * 3.6), "km/h", Modifier.fillMaxWidth()) }
-                item { Notice("Análise de percurso", "Mapa, gráfico, eventos e exportação serão adicionados após a implementação da coleta real.") }
+                item { Metric("PAUSAS MANUAIS", duration(trip.pausedTimeMs), "tempo sem coleta", Modifier.fillMaxWidth()) }
+                if (!points.loading && points.error == null) item {
+                    Notice("Qualidade das amostras", "${points.value.count { it.accepted }} válidas • ${points.value.count { !it.accepted }} desconsideradas" +
+                        if (points.value.any { it.isMock }) "\nEsta viagem contém localização simulada." else "")
+                }
+                points.error?.let { error -> item { Notice("Pontos indisponíveis", error) } }
+                item { Notice("Análise de percurso", "Os pontos e segmentos estão salvos. Métricas, mapa, gráfico, eventos e exportação serão adicionados nas próximas etapas.") }
             }
         }
     }

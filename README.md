@@ -1,141 +1,123 @@
 # Moto Telemetry
 
-Aplicativo **Android nativo** para registrar viagens de motocicleta, offline e sem conta. Kotlin, Compose e Material 3. Package `com.mototelemetry`; Android 14+ (API 34).
+Aplicativo Android nativo para viagens de motocicleta, offline, sem conta, servidor ou analytics. Kotlin, Compose/Material 3, Hilt, Room e DataStore. Package `com.mototelemetry`; Android 14+ (API 34).
 
-## Entrega atual: etapa 2 — velocímetro GNSS
+## Entrega atual: etapa 3 — gravação de viagens
 
-- Projeto Android Studio com Gradle Wrapper completo e checksum da distribuição.
-- Navegação entre Painel, Histórico, Detalhes de viagem e Ajustes; tema escuro com destaque ciano.
-- Room com quatro tabelas, índices, foreign keys, exclusão em cascata e consultas `Flow`.
-- Criação transacional de sessão protegida contra duas sessões ativas, sem ativar coleta.
-- DataStore para posição do celular, suavização visual, tela ligada e limiares iniciais.
-- Hilt para injetar banco, DAO, preferências, sessão e ViewModel.
-- Estados de carregamento e erro de armazenamento. Velocidade e métricas ausentes aparecem como `—`.
-- Velocímetro real por Fused Location, com alternativa GPS nativa sem Google Play Services.
-- Permissão precisa solicitada ao ativar, estados de GPS desligado/permissão negada e atalhos para ajustes Android.
-- Qualidade, idade e precisão do sinal; localização simulada identificada na tela.
-- Filtro visual configurável, expiração de leituras antigas e coleta limitada ao app visível.
-- Preferência de tela ligada aplicada enquanto o velocímetro estiver ativo.
-- Testes unitários de replay, testes instrumentados de UI/mapeamento/banco e workflow de CI.
+- Velocímetro por Fused Location, com GPS nativo como alternativa sem Google Play Services.
+- Iniciar, pausar, retomar e finalizar viagens; uma sessão aberta por vez.
+- Serviço foreground de tipo `location`, iniciado pelo painel visível e com notificação persistente de controle.
+- Gravação com tela bloqueada enquanto Android/fabricante permitirem o serviço. Não há reinício automático garantido após encerramento do processo.
+- Pontos brutos aceitos/rejeitados, motivos, sequência e segmentos persistidos localmente. Checkpoints a cada dois segundos, com flush ao pausar/finalizar.
+- Novos segmentos após pausa, recuperação e perda de sinal por cinco segundos; nenhum trecho perdido é inventado.
+- Recuperação explícita de sessão interrompida, ou finalização sem precisar de GPS. O tempo em que o processo ficou morto não é creditado à duração ativa.
+- Histórico e detalhes com duração ativa, pausas e contagem de amostras, inclusive identificação de localização simulada.
+- Erros de permissão, GPS desligado, início bloqueado pelo Android e armazenamento tratados com mensagem no painel. Falha de gravação suspende a coleta e permite tentar salvar novamente.
+- Preferências locais de suavização visual, tela ligada, modo de montagem e limiares iniciais de eventos.
 
-**Esta versão mede velocidade, mas ainda não registra viagens.** Toque em **ATIVAR VELOCÍMETRO** e autorize localização precisa. O pedido de localização aproximada sozinho não é suficiente. O botão **INICIAR VIAGEM** segue desabilitado até a etapa 3; distância/médias/recordes não são simulados. Nenhuma posição é salva nesta etapa.
+**Distância, médias, máximas acumuladas, movimento/paradas, eventos, mapa, gráfico e exportação ainda serão implementados.** O painel mostra `—` para métricas indisponíveis. O velocímetro isolado continua disponível sem salvar uma viagem; nessa modalidade a coleta depende da Activity visível.
 
-A coleta para quando a Activity deixa de estar visível, inclusive ao bloquear a tela, e retoma quando você volta ao app se o velocímetro continuar ativado. Não há foreground service nesta versão. O funcionamento durante tela bloqueada será implementado com a gravação.
+## Baixar e instalar
 
-O ZIP `MotoTelemetry-v1-etapa1.zip` não estava disponível. A base foi criada no repositório vazio, com os módulos previstos. O documento recebido está em [docs/ESPECIFICACAO.md](docs/ESPECIFICACAO.md).
+[APK de teste v0.3.0 no GitHub Releases](https://github.com/dpaulistarp/telemetria-moto/releases/tag/v0.3.0-preview). Em **Assets**, baixe `MotoTelemetry-v0.3.0-preview-debug.apk` e abra no Android 14+.
+
+É uma prévia com assinatura de desenvolvimento. A v0.2.0 foi assinada com outra chave de debug; se o Android recusar atualizar sobre ela, será necessário remover o app anterior. **Desinstalar apaga os dados locais.** A partir desta entrega a chave de debug da CI fica em cache, sujeito à retenção desse cache; isso não substitui uma chave de produção.
+
+A release só é publicada se o workflow Android concluir build, testes JVM, compilação dos testes instrumentados e lint. Código-fonte e checksums também ficam disponíveis na página.
+
+## Usar a gravação
+
+1. Com a moto parada, abra o painel e toque em **INICIAR VIAGEM**.
+2. Permita localização **precisa** e habilite o GPS. A permissão aproximada sozinha não inicia a coleta. O pedido de notificações permite usar os controles na gaveta; se negado, o serviço ainda pode funcionar, com os controles pelo painel.
+3. Aguarde um ponto válido. O estado `STARTING` muda para `RECORDING` após a primeira amostra aceita.
+4. Use **PAUSAR/RETOMAR** no painel ou na notificação. Durante pausa, nenhum ponto é coletado; o intervalo é separado do tempo ativo.
+5. Use **FINALIZAR**. O painel pede confirmação; a notificação possui ação direta explícita. O app salva pontos pendentes, conclui a viagem e encerra o serviço.
+6. Se o processo for encerrado, reabra o app e escolha **RECUPERAR VIAGEM** ou **FINALIZAR VIAGEM**. Somente o que chegou ao banco pode ser recuperado; o último lote ainda em memória pode se perder.
+
+Não solicitamos `ACCESS_BACKGROUND_LOCATION`, acesso amplo a arquivos ou exclusão das otimizações de bateria. Iniciar/recuperar um serviço novo exige Activity visível; retomar uma pausa pela notificação usa o serviço foreground que permanece ativo. Fabricantes, modo de economia, encerramento forçado e revogação de permissão podem interromper o registro. Não há coleta após reinício do aparelho sem ação do usuário.
 
 ## Estrutura
 
-| Módulo | Responsabilidade nesta etapa |
+| Módulo | Responsabilidade |
 | --- | --- |
-| `app` | Activity, Compose, navegação, ViewModel e composição Hilt |
-| `core:database` | Entidades, DAO, Room e schema exportado |
-| `core:datastore` | Preferências locais tipadas e validação de limiares |
-| `core:tracking` | Fonte Android de localização, fallback GPS e observação da sessão local |
-| `core:telemetry` | Regras puras, relógio injetável, fonte abstrata e monitor testável de velocidade |
+| `app` | Activity, Compose, navegação, ViewModel, permissões e composição Hilt |
+| `core:database` | Room, quatro tabelas, DAOs e migração 1 → 2 |
+| `core:datastore` | Preferências locais tipadas |
+| `core:tracking` | Fonte Android, foreground service, notificação, comandos e adaptador Room |
+| `core:telemetry` | Relógio/fonte injetáveis, velocímetro, máquina de estados e registrador puro testável |
 
-`core:export`, serviço foreground e motor de métricas de viagem serão implementados nas etapas correspondentes. Não há serviço placeholder que finja rastrear.
+A especificação recebida está em [docs/ESPECIFICACAO.md](docs/ESPECIFICACAO.md). O ZIP anterior citado nela não estava disponível; a fundação foi criada no repositório vazio. `core:export` e o motor completo de métricas virão nas etapas correspondentes.
 
-## Ferramentas
+## Ferramentas e build
 
 | Componente | Versão |
 | --- | --- |
-| JDK | 21 (bytecode Java/Kotlin 17) |
-| Gradle / Android Gradle Plugin | 8.13 / 8.11.1 |
+| JDK / bytecode | 21 / 17 |
+| Gradle / AGP | 8.13 / 8.11.1 |
 | Kotlin / KSP | 2.1.21 / 2.1.21-2.0.1 |
 | SDK mínimo / compilação / alvo | 34 / 36 / 36 |
 | Hilt / Room / DataStore | 2.56.2 / 2.7.2 / 1.1.7 |
 | Compose BOM / Navigation | 2025.05.01 / 2.9.0 |
-| Play Services Location (opcional em execução) | 21.3.0 |
+| Play Services Location | 21.3.0, opcional em execução pelo fallback GPS |
 
-Dependências centralizadas em `gradle/libs.versions.toml`. Use Android Studio compatível com AGP 8.11 (Narwhal ou mais recente), selecionando um JDK 21 completo para o Gradle. Não basta instalar somente um JRE.
-
-## Baixar o APK
-
-Use a [prévia v0.2.0 no GitHub Releases](https://github.com/dpaulistarp/telemetria-moto/releases/tag/v0.2.0-preview.2). Em **Assets**, baixe `MotoTelemetry-v0.2.0-preview.2-debug.apk` e abra no Android 14+ para instalar. O código-fonte também fica disponível nessa página.
-
-É um APK de desenvolvimento, com assinatura de debug. O velocímetro está implementado; gravação de viagens e funcionamento com tela bloqueada continuam previstos para a etapa 3. A publicação depende do sucesso do build/testes/lint do workflow Android.
-
-## Compilar localmente
-
-Instale pelo SDK Manager a plataforma Android 36, Build Tools 35.0.0 e Platform Tools. Configure `ANDROID_HOME` ou crie `local.properties` com `sdk.dir=/caminho/do/sdk` (arquivo ignorado pelo Git).
+Versões centralizadas em `gradle/libs.versions.toml`. Use Android Studio compatível com AGP 8.11 (Narwhal ou mais recente) e JDK 21 completo. Instale plataforma Android 36, Build Tools 35.0.0 e Platform Tools. Configure `ANDROID_HOME` ou `local.properties` com `sdk.dir=/caminho/do/sdk` (ignorado pelo Git).
 
 ```bash
-./gradlew assembleDebug
-./gradlew testDebugUnitTest :core:telemetry:test
+./gradlew assembleDebug testDebugUnitTest :core:telemetry:test
 ./gradlew :app:assembleDebugAndroidTest :core:database:assembleDebugAndroidTest :core:tracking:assembleDebugAndroidTest
 ./gradlew lintDebug
-```
-
-No Windows, use `gradlew.bat` com as mesmas tarefas. APK: `app/build/outputs/apk/debug/app-debug.apk`.
-
-```bash
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Abra **Moto Telemetry** no aparelho Android 14+. Não é necessário login, internet, token de mapa ou chave de API. O build inicial requer acesso aos repositórios Google Maven, Maven Central e Gradle.
+No Windows, use `gradlew.bat`. O APK está em `app/build/outputs/apk/debug/app-debug.apk`. O build inicial precisa de acesso a Google Maven, Maven Central e Gradle; o uso do app não exige login, internet ou chave de mapa.
 
-## Ambiente Codex na nuvem
+## Testes e limites
 
-O checkout existente fica em `/workspace/telemetria-moto`. Cada tarefa já é isolada; não crie worktree para desenvolver aqui.
-
-```bash
-cd /workspace/telemetria-moto
-./scripts/setup-cloud.sh
-```
-
-O script instala ferramentas em `/workspace/toolchains`, verifica os checksums publicados, instala o SDK e executa build/testes/lint. É específico deste ambiente Linux, requer Python 3.12+ e aceita a licença do SDK necessária à instalação. Preserva `HOME`, configura o proxy Java a partir de `HTTPS_PROXY` sem salvar credenciais no projeto, e usa caches graváveis em `/workspace/.cache`.
-
-Em novos terminais com o ambiente já preparado:
-
-```bash
-cd /workspace/telemetria-moto
-source scripts/cloud-env.sh
-./gradlew assembleDebug
-```
-
-Não há backend nem processo de servidor para iniciar. Processos Android devem ser iniciados em aparelho/emulador; não há preview web.
-
-## Testes
-
-- JVM: 29 testes de sessão, unidades, preferências, qualidade/idade, suavização, replay e cancelamento da fonte.
-- Android: navegação, UI sem velocidade antiga, identificação de simulação, mapeamento de `Location` e integridade do banco. Nove testes instrumentados preparados; a execução requer aparelho/emulador.
-- Para executar instrumentados, conecte aparelho/emulador Android 14+ e rode:
+- **44 testes JVM**: qualidade/idade do sinal, filtro, replay, sessão, persistência simulada, concorrência, falhas de escrita, recuperação e preferências.
+- **15 testes Android preparados**: navegação/controles, mostrador, mapeamento de `Location`, Room, recuperação persistida e migração. Foram compilados nesta máquina; execução depende de aparelho/emulador.
+- SQL da migração 1 → 2 também foi exercitado em SQLite local, verificando preservação de viagem/ponto e chaves estrangeiras. Isso não substitui o teste Android de migração.
 
 ```bash
 ./gradlew :app:connectedDebugAndroidTest :core:database:connectedDebugAndroidTest :core:tracking:connectedDebugAndroidTest
 ```
 
-Compilar os APKs de teste não equivale a executá-los. Os resultados reais desta entrega ficam em [docs/VALIDACAO.md](docs/VALIDACAO.md).
+Resultados reais e roteiro de teste em aparelho: [docs/VALIDACAO.md](docs/VALIDACAO.md). Não há emulador provisionado nesta máquina nem validação de tela bloqueada, bateria ou FGS em execução Android.
 
-## Persistência e privacidade
+## Dados e privacidade
 
-O schema inicial é a versão 1, exportado em `core/database/schemas/`. Como não havia projeto/banco anterior disponível, não há migração legada a aplicar ou testar. Mudanças futuras devem adicionar migrações e testes preservando viagens; não usamos `fallbackToDestructiveMigration`.
+Room versão **2**, com schemas 1/2 exportados e migração automática que adiciona `track_points.isMock=false` aos dados antigos. Não usamos migração destrutiva. A transação grava checkpoint, pontos e segmentos juntos; sequência é única por viagem. Erros operacionais são separados do estado da sessão.
 
-Timestamps UTC e tempo monotônico têm campos distintos. Amostras aceitas e rejeitadas podem ser armazenadas com motivo; pontos têm sequência única por viagem e pertencem a segmentos. Nesta etapa o GPS é usado apenas pelo velocímetro em memória: ainda não há escrita de pontos no banco.
+UTC é preservado para horários; duração ativa e pausas usam relógio monotônico. Não contabilizamos o período desconhecido entre morte do processo e recuperação. Pontos de pausa não são coletados. Pontos rejeitados permanecem identificados; valores não finitos que SQLite não representa em colunas obrigatórias usam sentinela numérica com o valor original textual no motivo de rejeição. Nunca são aceitos como posição válida.
 
-O app não declara internet, analytics, backup de localização nem permissões de armazenamento amplo. `allowBackup=false`, com exclusões explícitas de backup em nuvem e transferência entre aparelhos em `data_extraction_rules.xml`. As permissões precisa/aproximada são declaradas; a coleta exige a precisa. Não solicitamos localização em segundo plano. Permissões de notificação/FGS serão incluídas junto do serviço na etapa 3.
+O app não declara internet ou analytics. Banco e preferências ficam no aparelho; `allowBackup=false` e exclusões explícitas impedem backup em nuvem/transferência dos dados do app. Notificação de gravação tem visibilidade privada. Localização simulada fornecida pelo Android é identificada na UI e persistida no ponto.
 
-## Regras do velocímetro
+## Qualidade do velocímetro
 
-- Solicita atualizações de aproximadamente 1 s, mínimo de 500 ms; o provedor pode entregar com outra frequência. Não usa `getLastLocation()` nem estima velocidade por coordenadas.
-- Usa m/s do provedor e converte para km/h (`× 3,6`). Zero só aparece se o provedor informar velocidade zero; valor ausente aparece como `—`.
-- Rejeita amostras com idade de 5 s ou mais, tempo monotônico futuro/não crescente, coordenadas inválidas, precisão horizontal acima de 30 m ou incerteza de velocidade acima de 3 m/s. Leituras atrasadas não renovam a validade de uma leitura mais recente.
-- Sinal bom exige precisão horizontal até 10 m e incerteza de velocidade até 1,5 m/s. Precisão de velocidade ausente permite exibição com aviso de sinal fraco. Valores não finitos, negativos ou superiores ao limite de sanidade de 120 m/s são ocultados.
-- Sem callbacks novos por 5 s, remove a velocidade da tela. O relógio UTC não interfere nos cálculos de idade/suavização.
-- Suavização exponencial com constante de 1 s afeta somente o número exibido. O valor bruto permanece separado em memória. Lacunas de sinal reiniciam o filtro.
-- `LOCALIZAÇÃO SIMULADA` identifica o sinal quando o Android marca a amostra como mock. Limiares de qualidade são parâmetros iniciais, não garantia de precisão profissional.
-- Fused Location é a primeira opção; sem Google Play Services, usa o provedor GPS do Android. Ambos precisam de permissão precisa e localização ativada. A aquisição e exibição não exigem login nem internet; em modo avião, o primeiro fix pode demorar mais.
+Intervalo solicitado de aproximadamente 1 s, mínimo de 500 ms, sem promessa de frequência exata. Usa velocidade do provedor em m/s (`× 3,6` para km/h), sem `getLastLocation()` ou estimativa por coordenadas. Ausência de velocidade não vira zero.
+
+Leituras com idade de 5 s ou mais, tempo monotônico inválido, coordenadas inválidas, precisão horizontal acima de 30 m ou incerteza de velocidade acima de 3 m/s são ocultadas. Sinal bom exige precisão horizontal até 10 m e incerteza de velocidade até 1,5 m/s; incerteza ausente é marcada como sinal fraco. Há limite inicial de sanidade de 120 m/s. Silêncio de callbacks remove a velocidade em 5 s. Suavização exponencial com constante de 1 s afeta só a exibição.
+
+O registrador aceita posições válidas sem velocidade nativa e mantém esse campo ausente, sem inventar velocidade. Validação geodésica de saltos e métricas completas são da etapa 4. Limiares são iniciais e não constituem medição profissional.
+
+## Codex na nuvem
+
+Use `/workspace/telemetria-moto`, sem criar worktree: cada tarefa já é isolada.
+
+```bash
+cd /workspace/telemetria-moto
+./scripts/setup-cloud.sh
+# Em terminais com ferramentas já preparadas:
+source scripts/cloud-env.sh
+```
+
+O script instala JDK/SDK verificados em `/workspace/toolchains`, preserva `HOME` e usa o proxy/truststore da plataforma. Na CI, `scripts/bootstrap-android-tools.py` instala ferramentas verificadas sem depender do SDK/PATH da imagem do runner. Não há backend ou preview web; o serviço Android deve ser iniciado no aparelho pela UI.
 
 ## Próximas etapas
 
-A validação GNSS em aparelho/emulador e o roteiro de testes manuais estão em [docs/VALIDACAO.md](docs/VALIDACAO.md).
+4. Distância geodésica, médias, máxima validada, tempos em movimento/parado, filtros e recálculo de trajetos salvos.
+5. Eventos de aceleração/frenagem com confiança e testes de falsos positivos.
+6. Mapa/traçado offline, gráfico sincronizado, histórico completo e exclusão.
+7. Exportação GPX/CSV via SAF e robustez.
+8. QA em aparelho, bateria e revisão final.
 
-3. Gravação: foreground service, notificação, controles, checkpoints e recuperação após interrupção.
-4. Métricas e filtros com trajetos de replay.
-5. Eventos por variação de velocidade GNSS e confiança.
-6. Mapa/traçado offline, gráfico, histórico completo e exclusão.
-7. GPX/CSV via SAF, robustez e migrações.
-8. QA em aparelho, bateria, tela bloqueada e revisão final.
-
-Não há medição de inclinação, ABS ou precisão profissional prometida. Configure e consulte detalhes com a moto parada.
+Configure e analise a viagem com a moto parada. Não há medição confiável de inclinação real, ABS ou precisão profissional prometida.

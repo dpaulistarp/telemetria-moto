@@ -20,6 +20,8 @@ data class LocationFix(
     val speedAccuracyMps: Float?,
     val isMock: Boolean = false,
     val provider: LocationProvider = LocationProvider.FUSED,
+    val bearingDegrees: Float? = null,
+    val altitudeMeters: Double? = null,
 )
 
 sealed interface LocationUpdate {

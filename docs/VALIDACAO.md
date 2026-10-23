@@ -1,93 +1,85 @@
-# Validação — etapa 2: velocímetro GNSS
+# Validação — etapa 3: sessões e background
 
-A fundação foi publicada na branch `main` no commit `ff47e5c`. O relatório da entrega anterior está em [VALIDACAO_ETAPA1.md](VALIDACAO_ETAPA1.md). Este documento distingue testes executados de funcionalidades que ainda precisam de validação Android em aparelho/emulador.
+Código do Moto Telemetry `0.3.0`. Relatórios anteriores: [etapa 1](VALIDACAO_ETAPA1.md), [etapa 2](VALIDACAO_ETAPA2.md).
 
-## Funcionalidades implementadas
+## Comportamento implementado
 
-- Aquisição Android por Fused Location (`play-services-location:21.3.0`), com fallback para GPS nativo se Google Play Services não estiver disponível.
-- Permissão precisa/aproximada solicitada apenas pelo botão de ativação. Permissão aproximada sozinha não inicia aquisição. Atalhos para localização e permissões do sistema.
-- Leitura de velocidade do provedor, sem `getLastLocation()` e sem estimativa por coordenadas. Valores ausentes aparecem como `—`, sem zero fictício.
-- Estados de permissão, localização desligada, busca, sinal bom/fraco, velocidade ausente, amostra antiga e erro. Exibe precisão horizontal, precisão de velocidade quando fornecida, idade e fonte.
-- Identificação de amostras marcadas pelo Android como simuladas. Um emulador pode simular GPS sem marcar `isMock`; a identificação depende dessa informação do Android.
-- Validação por tempo monotônico e incerteza; leituras sem novos callbacks expiram em 5 s. Leituras fora de ordem não substituem a atual nem renovam sua validade.
-- Suavização visual exponencial com constante de 1 s; dados brutos e exibidos separados em memória. Preferência alterada em Ajustes afeta imediatamente a exibição.
-- Cancelamento da aquisição quando o app deixa de estar visível ou o usuário desliga o velocímetro. Retorno ao app solicita novas leituras; rotação preserva a intenção de ativação via ViewModel.
-- Preferência para manter a tela ligada enquanto o velocímetro estiver ativo.
+Serviço foreground de localização com notificação privada e ações Pausar/Retomar/Finalizar, permissões contextuais e início pela Activity visível. Permissão de notificações negada não impede o FGS; a UI explica que os controles podem não aparecer na gaveta. Sem solicitação de localização em segundo plano ou armazenamento amplo.
 
-O monitor puro recebe `LocationSource` e `TelemetryClock` injetáveis. Os testes usam `FakeLocationSource` e `FakeClock`; a implementação de produção usa callbacks Android e tempo monotônico do sistema. A UI observa `StateFlow` e não coleta GPS diretamente.
+Registrador puro com fonte/relógio injetáveis e estado persistido: STARTING → RECORDING → PAUSED/STARTING → FINISHING → COMPLETED, com INTERRUPTED recuperável. Uma sessão aberta por vez. Comandos repetidos são idempotentes e controles com ID de outra viagem são recusados antes de afetar a coleta.
 
-## Verificações executadas nesta máquina
+Amostras brutas aceitas/rejeitadas recebem sequência e segmento. Checkpoints a cada dois segundos e limite de seis amostras em memória; pausas/finalização fazem flush. Pausa fecha o trecho e abre intervalo manual sem GPS; retomada cria trecho novo. Falta de sinal por cinco segundos separa o traçado. Após morte do processo, o último checkpoint é marcado como interrompido, sem inventar pontos ou creditar tempo desconhecido. Recuperação exige ação do usuário.
 
-```bash
-cd /workspace/telemetria-moto
-./scripts/setup-cloud.sh
-```
+Falhas de armazenamento suspendem a aquisição e preservam lote pendente enquanto o processo continuar vivo. O usuário pode tentar salvar novamente. Falha de início não deixa sessão fantasma; se o processo for morto, só os dados que chegaram ao banco são recuperáveis. Não há reinício automático do serviço.
 
-O script foi executado com sucesso incluindo as novas dependências e os três APKs instrumentados. A verificação final da alteração indicada pelo lint usou:
+## Verificações executadas
 
 ```bash
 source scripts/cloud-env.sh
-./gradlew assembleDebug :app:assembleDebugAndroidTest lintDebug --console=plain
+./gradlew assembleDebug testDebugUnitTest :core:telemetry:test \
+  :app:assembleDebugAndroidTest :core:database:assembleDebugAndroidTest \
+  :core:tracking:assembleDebugAndroidTest lintDebug --console=plain
 ```
 
-| Verificação | Resultado |
+Após correções de build/lint, os alvos afetados foram executados novamente com sucesso:
+
+```bash
+./gradlew assembleDebug :app:assembleDebugAndroidTest :core:tracking:assembleDebugAndroidTest lintDebug --console=plain
+```
+
+| Verificação | Resultado nesta máquina |
 | --- | --- |
-| APK debug | Compilado; `com.mototelemetry`, versão `0.2.0`, mínimo 34, alvo 36 |
-| `core:telemetry:test` | 26 testes executados, 0 falhas, 0 erros, 0 ignorados |
-| `core:datastore:testDebugUnitTest` | 3 testes executados, 0 falhas, 0 erros, 0 ignorados |
-| Total JVM | **29 testes aprovados** |
-| `app:assembleDebugAndroidTest` | Compilado: navegação e dois testes do mostrador |
-| `core:database:assembleDebugAndroidTest` | Compilado: três testes de integridade do banco |
-| `core:tracking:assembleDebugAndroidTest` | Compilado: três testes de mapeamento de `Location` |
-| Lint final | Sem erros ou avisos nos módulos Android |
-| Assinatura do APK | Verificada com `apksigner verify --verbose` |
-| Manifest empacotado | Precisa/aproximada; sem internet, background location, FGS ou armazenamento amplo |
-| Schema Room | Versão 1 preservada, sem mudança de schema nem migração destrutiva |
+| APK debug | Compilado, versão 0.3.0, mínimo 34, alvo 36 |
+| JVM core:telemetry | 41 testes executados, sem falha/erro/ignorados |
+| JVM core:datastore | 3 testes executados, sem falha/erro/ignorados |
+| Total JVM | **44 aprovados** |
+| Lint Android | Sem erros ou avisos |
+| Testes Android | 15 preparados e compilados; não executados |
+| APKs instrumentados | Classes novas de controles, persistência e migração confirmadas nos arquivos DEX |
+| Assinatura debug | Verificada com apksigner |
+| Migração SQL 1 → 2 | Executada em SQLite local: viagem, coordenadas, flag padrão e foreign keys preservadas |
 
-As tarefas sem testes locais de `app`, `core:database` e `core:tracking` permanecem `NO-SOURCE` e não entram na contagem de 29. Os nove testes Android foram **compilados, não executados**.
+As tarefas JVM sem fontes de app/database/tracking não contam como testes executados. Os 15 instrumentados são 5 de app, 4 de database e 6 de tracking. O teste SQL usou o schema exportado 1 e a instrução gerada pelo Room (`ALTER TABLE track_points ADD COLUMN isMock INTEGER NOT NULL DEFAULT 0`); o teste Android de migração foi preparado separadamente com `MigrationTestHelper`.
 
-Os testes novos cobrem velocidade zero real versus ausente, amostras antigas/futuras, precisão inválida, dados fora de ordem, silêncio de callbacks, filtro por intervalo real, lacunas, flags de simulação, mudança de preferência, revogação de permissão, erro do provedor, cancelamento da fonte e mudança de relógio UTC sem afetar a idade monotônica.
+Os 15 testes JVM novos cobrem: início esperando GPS, flush de pausa/finalização, tempo ativo versus pausa, lacunas, rejeição, sequências, recuperação após morte/reboot, finalização sem GPS, falha/repetição de salvamento, falha na conclusão, início que falha, comandos repetidos/ID inválido, início concorrente, mudança UTC e histórico de múltiplas viagens.
 
-## Validação Android pendente
+## Migração e dados
 
-**Não foi possível executar o aplicativo ou testes instrumentados em aparelho/emulador nesta máquina.** Não há emulador provisionado nem `/dev/kvm`. A tentativa anterior de iniciar ADB foi impedida por `/home/agent/.android` somente leitura. Assim, não afirmamos que GPS real, diálogos de permissão, rotação, retomada ou fallback nativo foram validados em execução Android.
+Banco versão 2, com AutoMigration 1 → 2. Apenas a coluna `isMock` é adicionada, com padrão falso para pontos antigos. Sem alterações destrutivas. Checkpoint, segmentos e pontos são transacionais. Valores brutos não finitos que SQLite não suporta são representados por sentinela nos campos obrigatórios e preservados textualmente no motivo de rejeição; tais amostras são rejeitadas e nunca usadas como coordenadas válidas.
 
-Em um host com ADB funcional e aparelho/emulador Android 14+:
+As métricas de distância/médias/máximas acumuladas e eventos continuam indisponíveis; zeros dos campos reservados no banco não são apresentados como medições. Histórico/detalhes mostram amostras, duração ativa, pausa e dados simulados.
+
+## Limitação de execução Android
+
+**O aplicativo e o FGS não foram executados nesta máquina em aparelho/emulador.** Não há emulador provisionado nem `/dev/kvm`; o ADB encontrou restrição no diretório `/home/agent/.android` somente leitura. A compilação, os testes JVM e o SQL local não comprovam coleta com tela bloqueada, diálogos Android, controles de notificação, migração Room em Android ou comportamento de fabricante.
+
+Em host com ADB funcional e Android 14+:
 
 ```bash
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ./gradlew :app:connectedDebugAndroidTest :core:database:connectedDebugAndroidTest :core:tracking:connectedDebugAndroidTest
 ```
 
-Faça os ensaios de interface com a moto parada; trajetos simulados são preferíveis para exercitar velocidades e sinal ruim.
+## Roteiro obrigatório em aparelho
 
-### Roteiro de aceitação em aparelho/emulador
+1. Instalar a prévia, abrir sem crash e iniciar pelo painel visível. Precisão aproximada sozinha deve ser recusada; com localização precisa e GPS ativo deve aparecer notificação e STARTING.
+2. Fornecer amostras válidas reais ou mock: RECORDING, contador de amostras crescente, flag de simulação quando o Android informar `isMock`.
+3. Bloquear tela por alguns minutos, desbloquear e confirmar novos pontos/checkpoints. Repetir trocando apps e removendo a Activity da lista de recentes, respeitando restrições do fabricante.
+4. Pausar pelo painel e pela notificação; confirmar que pontos/tempo ativo param e o tempo de pausa cresce. Retomar com tela bloqueada usando a notificação do serviço existente; confirmar novo segmento.
+5. Finalizar pelo painel (com confirmação) e pela notificação (ação direta). Confirmar flush, COMPLETED, fim da notificação e ausência de novas localizações.
+6. Negar POST_NOTIFICATIONS, iniciar com localização precisa e confirmar FGS sem crash. Verificar aviso do painel e controles alternativos na UI.
+7. Desligar GPS durante gravação e aguardar 30 s. Reativar: velocidade antiga removida, novos trechos separados e nenhuma linha fabricada na lacuna.
+8. Revogar localização durante coleta: interrupção ou encerramento do processo pelo Android deve preservar os checkpoints. Reabrir, conceder novamente e recuperar ou finalizar sem GPS.
+9. Encerrar o processo/forçar parada e reabrir: sessão interrompida, sem duplicação de pontos, sequência continuada e novo segmento RECOVERY; tempo morto não é somado ao ativo. Não deve haver reinício automático após reboot.
+10. Testar dois toques rápidos em Iniciar e controles antigos de outra sessão: uma viagem aberta, sem interferir no GPS da viagem atual.
+11. Simular armazenamento indisponível no dispositivo de testes: coleta suspensa, erro claro e salvamento explícito após resolver a condição. Não descrever dados em memória como salvos se o processo for encerrado.
+12. Migrar uma instalação de teste com schema 1 sem desinstalar: viagens e pontos existentes devem permanecer, com isMock falso.
+13. Verificar rotação, economia de bateria, fabricante e ausência de acesso à rede. Repetir tanto com Play Services quanto com GPS nativo.
 
-1. Abrir o app: número `—`, velocímetro desligado e viagem indisponível. Nenhum pedido automático de localização.
-2. Ativar o velocímetro e negar a permissão, ou autorizar somente aproximada: estado de localização precisa necessária, sem velocidade. Usar o atalho para conceder a precisa e retornar.
-3. Desligar a localização do Android: estado de localização desligada, sem leitura antiga. Reativá-la e aguardar uma amostra nova.
-4. Com sinal adequado ao ar livre ou rota simulada no emulador, conferir velocidade/precisão. Sem velocidade fornecida pelo provedor, o estado correto é indisponível; não há fallback por coordenadas.
-5. Com fonte mock que informe `isMock`, conferir `LOCALIZAÇÃO SIMULADA`. As amostras dos testes JVM são simuladas e não medem desempenho real do GNSS.
-6. Interromper as atualizações por mais de 5 s sem desligar o provedor: velocidade deve virar `—` com `GPS INDISPONÍVEL`. Ao receber nova amostra válida, deve reiniciar o filtro sem ligar a leitura antiga à nova.
-7. Injetar precisão horizontal acima de 30 m, incerteza de velocidade acima de 3 m/s, coordenada inválida ou amostra antiga: não deve exibir velocidade dessas amostras.
-8. Desativar a suavização em Ajustes: passar a exibir o valor bruto. Reativar: suavização somente visual.
-9. Abrir outro app ou bloquear a tela: a coleta desta etapa deve parar. Retornar e aguardar leitura nova; não há promessa de rastreamento com tela bloqueada até a etapa 3.
-10. Girar o aparelho: manter a intenção de ativação, sem callbacks duplicados nem crash. Revogar permissão durante uso: estado claro ou, se o Android encerrar o processo, reabertura segura com velocímetro desligado.
-11. Ativar a preferência de tela ligada e deixar o painel ativo; desligar o velocímetro e conferir restauração do comportamento padrão.
-12. Testar aparelho sem Google Play Services para o fallback GPS. Em modo avião, manter GPS habilitado e verificar aquisição sem login ou internet; o primeiro fix pode demorar.
-13. Voltar ao histórico: não deve haver nova viagem ou pontos salvos, porque esta etapa só exibe velocidade em memória.
+Realize os controles e análise com a moto parada. A primeira validação pode usar trajetos sintéticos de um provedor mock; testes simulados não medem precisão real do GNSS.
 
-## Limites do escopo
+## Entrega e instalação de prévias
 
-Gravação, foreground service, notificação, pausas, recuperação, métricas acumuladas, eventos, mapa e exportação seguem para as próximas etapas. O botão de iniciar viagem continua desabilitado com explicação. Os limiares são parâmetros iniciais de qualidade, não medição profissional nem garantia contra todo ruído GNSS.
+O workflow Android executa checks antes da publicação de tags `v*` no GitHub Releases. A chave debug passa a ficar em cache da CI, sujeito à retenção desse cache. A v0.2.0 foi gerada com outra chave; atualizar sobre ela pode exigir desinstalação (que remove dados locais). Isso não é uma política de assinatura de produção.
 
-## Arquivos principais da etapa
-
-- `core/telemetry`: `LocationSource.kt`, `SpeedometerProcessor.kt`, `SpeedometerMonitor.kt` e dois arquivos novos de testes.
-- `core/tracking`: `AndroidLocationSource.kt`, relógio Android, mapeamento de amostras e `LocationMappingTest.kt`.
-- `app`: permissões do manifest, `MainActivity`, DI, `MotoViewModel`, painel e `SpeedometerUi.kt`; novos testes do mostrador e ajustes na navegação instrumentada.
-- Dependências/versionamento: catálogos e builds dos módulos, versão do app `0.2.0` e `.gitattributes` para scripts Windows/Linux.
-- Automação: script de preparação e CI compilam agora também os testes instrumentados de tracking.
-- Documentação: README atualizado, este relatório e preservação do relatório da etapa 1.
-
-O workflow de CI foi atualizado e os comandos foram validados localmente. Não foi consultado o resultado do GitHub Actions. A configuração reutilizável do ambiente deve apontar para esta etapa; salvar o rascunho não publica um novo snapshot nem valida restauração em outra tarefa.
+Arquivos principais novos/alterados: `SessionRecorder`/modelos/testes em core:telemetry; `TrackingService`, `TrackingLauncher`, `SessionRepository` e `RoomRecordingStore` em core:tracking; schema 2 e teste de migração em core:database; DI, ViewModel, permissões, controles e detalhes no app; workflow de release, README e este relatório.

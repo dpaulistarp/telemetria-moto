@@ -15,12 +15,17 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+      # Development signing only. Keep subsequent debug updates compatible.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: android-debug-keystore-v1
       - uses: gradle/actions/setup-gradle@v4
       - name: Install Android platform
         run: |
           export ANDROID_HOME="$RUNNER_TEMP/android-sdk"
           export ANDROID_SDK_ROOT="$ANDROID_HOME"
-          export ANDROID_USER_HOME="$RUNNER_TEMP/android-user"
+          export ANDROID_USER_HOME="$HOME/.android"
           echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
           echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
           echo "ANDROID_USER_HOME=$ANDROID_USER_HOME" >> "$GITHUB_ENV"
@@ -60,8 +65,13 @@ jobs:
           Prévia Android de desenvolvimento do Moto Telemetry (Android 14+).
 
           Baixe o arquivo .apk em Assets e abra no celular para instalar.
-          Contém o velocímetro GNSS, permissões contextuais e qualidade do sinal.
-          Ainda não grava viagens nem coleta com a tela bloqueada.
+          Etapa 3: gravação local, serviço de localização em primeiro plano, controles pela notificação,
+          pausa/retomada e recuperação de sessão interrompida. Tela bloqueada depende das permissões
+          e restrições do Android/fabricante. Métricas completas, eventos, mapa e exportação vêm depois.
+
+          Atualização de APKS de teste: a v0.2.0 usava outra chave de debug. Se o Android recusar a
+          atualização, a instalação desta prévia exige remover o app anterior; isso apaga os dados locais.
+          A assinatura de desenvolvimento passa a ser preservada no cache da CI, sujeito à retenção do cache.
 
           Build, testes JVM e lint são verificados antes da publicação.
           Testes Android são compilados; execução e GPS real ainda precisam de aparelho/emulador.

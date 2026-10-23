@@ -15,7 +15,7 @@ abstract class TripDao {
     abstract fun observeActiveTrip(): Flow<TripEntity?>
 
     @Query("SELECT * FROM trips WHERE status NOT IN ('IDLE', 'COMPLETED') LIMIT 1")
-    protected abstract suspend fun findActiveTrip(): TripEntity?
+    abstract suspend fun findActiveTrip(): TripEntity?
 
     @Insert(onConflict = OnConflictStrategy.ABORT)
     abstract suspend fun insertTrip(trip: TripEntity)
@@ -27,6 +27,21 @@ abstract class TripDao {
         check(findActiveTrip() == null) { "There is already an active session" }
         insertTrip(trip)
     }
+
+    @Query("SELECT * FROM trips WHERE id = :id")
+    abstract suspend fun findTrip(id: String): TripEntity?
+
+    @Update
+    abstract suspend fun updateTrip(trip: TripEntity)
+
+    @Upsert
+    abstract suspend fun upsertSegments(segments: List<TripSegmentEntity>)
+
+    @Query("SELECT * FROM trip_segments WHERE tripId = :id AND endedAtUtcMs IS NULL")
+    abstract suspend fun openSegments(id: String): List<TripSegmentEntity>
+
+    @Query("SELECT COALESCE(MAX(sequence) + 1, 0) FROM track_points WHERE tripId = :id")
+    abstract suspend fun nextSequence(id: String): Long
 
     @Query("SELECT * FROM track_points WHERE tripId = :tripId ORDER BY sequence")
     abstract fun observePoints(tripId: String): Flow<List<TrackPointEntity>>
