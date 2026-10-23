@@ -17,6 +17,7 @@ class SessionRecorder(
     private val pendingPoints = mutableListOf<RecordingPoint>()
     private var sequence = 0L
     private var lastMonotonicMs = 0L
+    private var acceptAfterNanos = 0L
     private var newestFixNanos: Long? = null
     private var lastAcceptedNanos: Long? = null
     private var lastAcceptedUtcMs: Long? = null
@@ -130,8 +131,10 @@ class SessionRecorder(
         persist(); current
     }
 
-    suspend fun interrupt(): RecordingSession? = mutex.withLock {
+    suspend fun interrupt(expectedTripId: String? = null, allowed: () -> Boolean = { true }): RecordingSession? = mutex.withLock {
+        if (!allowed()) return@withLock current
         initializeLocked()
+        if (expectedTripId != null && current?.id != expectedTripId) return@withLock current
         if (current == null || current!!.status in setOf(TripState.COMPLETED, TripState.INTERRUPTED)) return@withLock current
         accountTime(); closeSegment(); transition(TripState.INTERRUPTED); persist(); current
     }
@@ -142,7 +145,8 @@ class SessionRecorder(
         current = current!!.copy(status = next)
     }
     private fun resetClockAndFixes() {
-        lastMonotonicMs = clock.elapsedRealtimeNanos() / 1_000_000
+        acceptAfterNanos = clock.elapsedRealtimeNanos()
+        lastMonotonicMs = acceptAfterNanos / 1_000_000
         newestFixNanos = null; lastAcceptedNanos = null; lastAcceptedUtcMs = null
     }
     private fun accountTime() {
@@ -156,8 +160,8 @@ class SessionRecorder(
             lastUpdatedAtUtcMs = clock.utcMillis(),
         )
     }
-    private fun openSegment(reason: String) {
-        segment = RecordingSegment(newId(), current!!.id, clock.utcMillis(), reason)
+    private fun openSegment(reason: String, atUtcMs: Long = clock.utcMillis()) {
+        segment = RecordingSegment(newId(), current!!.id, atUtcMs, reason)
         pendingSegments[segment!!.id] = segment!!
     }
     private fun closeSegment(at: Long = clock.utcMillis()) {
@@ -166,7 +170,8 @@ class SessionRecorder(
     }
     private fun gapLocked() {
         if (segment?.reason == "SIGNAL_GAP") return
-        closeSegment(lastAcceptedUtcMs ?: clock.utcMillis()); openSegment("SIGNAL_GAP")
+        val gapStart = lastAcceptedUtcMs ?: clock.utcMillis()
+        closeSegment(gapStart); openSegment("SIGNAL_GAP", gapStart)
     }
     private suspend fun persist(create: Boolean = false) {
         store.write(SessionWrite(checkNotNull(current), pendingSegments.values.toList(), pendingPoints.toList(), create))
@@ -174,6 +179,7 @@ class SessionRecorder(
     }
     private fun rejectReason(fix: LocationFix, now: Long): String? = when {
         fix.elapsedRealtimeNanos <= 0 || fix.elapsedRealtimeNanos > now -> "INVALID_MONOTONIC_TIME"
+        fix.elapsedRealtimeNanos < acceptAfterNanos -> "BEFORE_SEGMENT"
         newestFixNanos?.let { fix.elapsedRealtimeNanos <= it } == true -> "OUT_OF_ORDER"
         now - fix.elapsedRealtimeNanos >= GAP_NANOS -> "STALE"
         !fix.latitude.isFinite() || !fix.longitude.isFinite() -> "NON_FINITE_COORDINATE(lat=${fix.latitude},lon=${fix.longitude})"

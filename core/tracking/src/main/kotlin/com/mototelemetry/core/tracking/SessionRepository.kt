@@ -4,6 +4,7 @@ import com.mototelemetry.core.database.TripDao
 import com.mototelemetry.core.telemetry.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+import java.util.concurrent.atomic.AtomicLong
 
 /** Errors are operational signals, separate from the persisted session state. */
 enum class TrackingIssue { NONE, LOCATION_DISABLED, PERMISSION_REVOKED, SOURCE_ERROR, STORAGE_ERROR, START_NOT_ALLOWED, COMMAND_REJECTED }
@@ -20,6 +21,7 @@ class SessionRepository(
     val ready = _ready.asStateFlow()
     private val _runtime = MutableStateFlow(TrackingRuntime())
     val runtime = _runtime.asStateFlow()
+    private val serviceGeneration = AtomicLong(0)
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var processor = SpeedometerProcessor()
     private var smoothing = true
@@ -32,18 +34,26 @@ class SessionRepository(
         _ready.value = false
         try {
             recorder.initialize()
-            if (!_runtime.value.serviceRunning) recorder.interrupt()
+            if (!_runtime.value.serviceRunning) recorder.interrupt(allowed = { !_runtime.value.serviceRunning })
             if (!_runtime.value.serviceRunning) clearIssue()
             _ready.value = true
         } catch (error: CancellationException) { throw error }
         catch (_: Exception) { fail(TrackingIssue.STORAGE_ERROR, "Não foi possível abrir a sessão local. Tente novamente.") }
     }
-    fun serviceCreated() { _runtime.update { it.copy(serviceRunning = true) } }
-    fun serviceDestroyed() {
+    fun serviceCreated(): Long {
+        val generation = serviceGeneration.incrementAndGet()
+        _runtime.update { it.copy(serviceRunning = true) }
+        return generation
+    }
+    fun serviceDestroyed(generation: Long, tripId: String?) {
+        if (serviceGeneration.get() != generation) return
         _runtime.update { it.copy(serviceRunning = false, commandPending = false, live = SpeedometerState()) }
         // Best effort on a normal destruction; abrupt process death is recovered on next initialize.
+        if (tripId == null) return
         appScope.launch {
-            try { recorder.interrupt() }
+            try { recorder.interrupt(tripId) {
+                serviceGeneration.get() == generation && !_runtime.value.serviceRunning
+            } }
             catch (error: CancellationException) { throw error }
             catch (_: Exception) { fail(TrackingIssue.STORAGE_ERROR, "Não foi possível salvar a interrupção. O último checkpoint permanece no banco.") }
         }

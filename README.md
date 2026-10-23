@@ -73,7 +73,7 @@ No Windows, use `gradlew.bat`. O APK está em `app/build/outputs/apk/debug/app-d
 
 ## Testes e limites
 
-- **44 testes JVM**: qualidade/idade do sinal, filtro, replay, sessão, persistência simulada, concorrência, falhas de escrita, recuperação e preferências.
+- **47 testes JVM**: qualidade/idade do sinal, filtro, replay, sessão, persistência simulada, concorrência, falhas de escrita, recuperação e preferências.
 - **15 testes Android preparados**: navegação/controles, mostrador, mapeamento de `Location`, Room, recuperação persistida e migração. Foram compilados nesta máquina; execução depende de aparelho/emulador.
 - SQL da migração 1 → 2 também foi exercitado em SQLite local, verificando preservação de viagem/ponto e chaves estrangeiras. Isso não substitui o teste Android de migração.
 

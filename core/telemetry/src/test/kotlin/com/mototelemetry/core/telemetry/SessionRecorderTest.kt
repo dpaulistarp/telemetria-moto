@@ -70,7 +70,8 @@ class SessionRecorderTest {
         val r = recorder(); r.start("trip"); r.record(clock.fix()); r.checkpoint()
         clock.advance(6000); r.checkpoint(); r.record(clock.fix()); r.finish("trip")
         assertNotEquals(store.points[0].segmentId, store.points[1].segmentId)
-        assertTrue(store.segments.values.any { it.reason == "SIGNAL_GAP" })
+        val gap = store.segments.values.first { it.reason == "SIGNAL_GAP" }
+        assertEquals(store.segments.values.first().endedAtUtcMs, gap.startedAtUtcMs)
     }
     @Test fun noGpsKeepsStartingWithoutInventingPoints() = runTest {
         val r = recorder(); r.start("trip"); clock.advance(2000); r.checkpoint()
@@ -164,4 +165,28 @@ class SessionRecorderTest {
         assertEquals(2, store.trips.size)
         assertEquals(listOf(0L, 0L), store.points.map { it.sequence })
     }
+    @Test fun staleServiceCleanupCannotInterruptNewTrip() = runTest {
+        val r = recorder(); r.start("old"); r.finish("old"); r.start("new")
+        r.interrupt("old")
+        assertEquals("new", r.snapshot()!!.id)
+        assertEquals(TripState.STARTING, r.snapshot()!!.status)
+    }
+    @Test fun serviceGenerationGuardProtectsRecoveredSessionWithSameId() = runTest {
+        val r = recorder(); r.start("trip"); r.interrupt(); r.resume("trip")
+        r.interrupt("trip", allowed = { false })
+        r.record(clock.fix()); r.checkpoint()
+        assertEquals(TripState.RECORDING, store.trips["trip"]!!.status)
+    }
+
+    @Test fun cachedFixFromDuringPauseIsRejectedAfterResume() = runTest {
+        val r = recorder(); r.start("trip"); r.record(clock.fix())
+        clock.advance(100); r.pause("trip")
+        clock.advance(100); val duringPause = clock.fix()
+        clock.advance(100); r.resume("trip"); r.record(duringPause)
+        clock.advance(100); r.record(clock.fix()); r.finish("trip")
+        assertEquals("BEFORE_SEGMENT", store.points[1].rejectionReason)
+        assertFalse(store.points[1].accepted)
+        assertEquals(2, store.points.count { it.accepted })
+    }
+
 }

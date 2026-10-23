@@ -28,6 +28,8 @@ class TrackingService : Service() {
     private var acquisition: Job? = null
     private var foreground = false
     private var ownsSession = false
+    private var ownedTripId: String? = null
+    private var serviceGeneration = 0L
     private var storageHalted = false
     private var lastNotificationTrip: RecordingSession? = null
 
@@ -37,7 +39,7 @@ class TrackingService : Service() {
             NotificationChannel(CHANNEL, "Gravação de viagens", NotificationManager.IMPORTANCE_LOW).apply {
                 description = "Controles da viagem em andamento"; setShowBadge(false)
             })
-        sessions.serviceCreated()
+        serviceGeneration = sessions.serviceCreated()
         scope.launch {
             preferences.preferences.map { it.smoothDisplay }.distinctUntilChanged().collect { sessions.setSmoothing(it) }
         }
@@ -47,9 +49,9 @@ class TrackingService : Service() {
                     sessions.recorder.initialize()
                     if (action != START) check(sessions.recorder.snapshot()?.id == id) { "Este controle pertence a outra viagem." }
                     when (action) {
-                        START -> { sessions.recorder.start(id); ownsSession = true; startAcquisition() }
+                        START -> { sessions.recorder.start(id); ownsSession = true; ownedTripId = id; startAcquisition() }
                         PAUSE -> { sessions.recorder.pause(id); stopAcquisition(); sessions.stopLive() }
-                        RESUME -> { sessions.recorder.resume(id); ownsSession = true; startAcquisition() }
+                        RESUME -> { sessions.recorder.resume(id); ownsSession = true; ownedTripId = id; startAcquisition() }
                         FINISH -> {
                             stopAcquisition(); sessions.stopLive(); sessions.recorder.finish(id); sessions.clearIssue()
                             stopTracking(); break
@@ -173,7 +175,7 @@ class TrackingService : Service() {
     private fun duration(ms: Long): String = String.format(Locale.ROOT, "%02d:%02d:%02d", ms / 3_600_000, ms / 60_000 % 60, ms / 1000 % 60)
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onDestroy() {
-        stopAcquisition(); commands.close(); scope.cancel(); sessions.serviceDestroyed()
+        stopAcquisition(); commands.close(); scope.cancel(); sessions.serviceDestroyed(serviceGeneration, ownedTripId)
         super.onDestroy()
     }
     companion object {

@@ -30,9 +30,9 @@ Após correções de build/lint, os alvos afetados foram executados novamente co
 | Verificação | Resultado nesta máquina |
 | --- | --- |
 | APK debug | Compilado, versão 0.3.0, mínimo 34, alvo 36 |
-| JVM core:telemetry | 41 testes executados, sem falha/erro/ignorados |
+| JVM core:telemetry | 44 testes executados, sem falha/erro/ignorados |
 | JVM core:datastore | 3 testes executados, sem falha/erro/ignorados |
-| Total JVM | **44 aprovados** |
+| Total JVM | **47 aprovados** |
 | Lint Android | Sem erros ou avisos |
 | Testes Android | 15 preparados e compilados; não executados |
 | APKs instrumentados | Classes novas de controles, persistência e migração confirmadas nos arquivos DEX |
@@ -41,7 +41,7 @@ Após correções de build/lint, os alvos afetados foram executados novamente co
 
 As tarefas JVM sem fontes de app/database/tracking não contam como testes executados. Os 15 instrumentados são 5 de app, 4 de database e 6 de tracking. O teste SQL usou o schema exportado 1 e a instrução gerada pelo Room (`ALTER TABLE track_points ADD COLUMN isMock INTEGER NOT NULL DEFAULT 0`); o teste Android de migração foi preparado separadamente com `MigrationTestHelper`.
 
-Os 15 testes JVM novos cobrem: início esperando GPS, flush de pausa/finalização, tempo ativo versus pausa, lacunas, rejeição, sequências, recuperação após morte/reboot, finalização sem GPS, falha/repetição de salvamento, falha na conclusão, início que falha, comandos repetidos/ID inválido, início concorrente, mudança UTC e histórico de múltiplas viagens.
+Os 18 testes JVM novos cobrem: início esperando GPS, flush de pausa/finalização, tempo ativo versus pausa, lacunas, rejeição, sequências, recuperação após morte/reboot, finalização sem GPS, falha/repetição de salvamento, falha na conclusão, início que falha, comandos repetidos/ID inválido, início concorrente, mudança UTC e histórico de múltiplas viagens e proteção contra a limpeza atrasada de um serviço anterior e rejeição de amostra cacheada anterior à retomada.
 
 ## Migração e dados
 
