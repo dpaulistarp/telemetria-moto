@@ -50,6 +50,12 @@ O ZIP `MotoTelemetry-v1-etapa1.zip` não estava disponível. A base foi criada n
 
 Dependências centralizadas em `gradle/libs.versions.toml`. Use Android Studio compatível com AGP 8.11 (Narwhal ou mais recente), selecionando um JDK 21 completo para o Gradle. Não basta instalar somente um JRE.
 
+## Baixar o APK
+
+Use a [prévia v0.2.0 no GitHub Releases](https://github.com/dpaulistarp/telemetria-moto/releases/tag/v0.2.0-preview). Em **Assets**, baixe `MotoTelemetry-v0.2.0-preview-debug.apk` e abra no Android 14+ para instalar. O código-fonte também fica disponível nessa página.
+
+É um APK de desenvolvimento, com assinatura de debug. O velocímetro está implementado; gravação de viagens e funcionamento com tela bloqueada continuam previstos para a etapa 3. A publicação depende do sucesso do build/testes/lint do workflow Android.
+
 ## Compilar localmente
 
 Instale pelo SDK Manager a plataforma Android 36, Build Tools 35.0.0 e Platform Tools. Configure `ANDROID_HOME` ou crie `local.properties` com `sdk.dir=/caminho/do/sdk` (arquivo ignorado pelo Git).
