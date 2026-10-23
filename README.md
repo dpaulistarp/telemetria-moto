@@ -52,7 +52,7 @@ Dependências centralizadas em `gradle/libs.versions.toml`. Use Android Studio c
 
 ## Baixar o APK
 
-Use a [prévia v0.2.0 no GitHub Releases](https://github.com/dpaulistarp/telemetria-moto/releases/tag/v0.2.0-preview). Em **Assets**, baixe `MotoTelemetry-v0.2.0-preview-debug.apk` e abra no Android 14+ para instalar. O código-fonte também fica disponível nessa página.
+Use a [prévia v0.2.0 no GitHub Releases](https://github.com/dpaulistarp/telemetria-moto/releases/tag/v0.2.0-preview.1). Em **Assets**, baixe `MotoTelemetry-v0.2.0-preview.1-debug.apk` e abra no Android 14+ para instalar. O código-fonte também fica disponível nessa página.
 
 É um APK de desenvolvimento, com assinatura de debug. O velocímetro está implementado; gravação de viagens e funcionamento com tela bloqueada continuam previstos para a etapa 3. A publicação depende do sucesso do build/testes/lint do workflow Android.
 
